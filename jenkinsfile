@@ -1,0 +1,116 @@
+pipeline {
+    environment {
+        env = "$params.env"
+        registryCredential = "registryCredential"
+        version_tag = sh(returnStdout: true, script: "git log -n 1 --pretty=format:'%h'").trim()
+
+        serviceName = "demo-service-company" // Replace your serviceName
+        imageName = "$serviceName"  // <prefix>/serviceName // prefix = project name
+        namespace = "$serviceName"+ "-" + "$env"
+    }
+    agent any
+    stages {
+        stage('Pull image') {
+            steps {
+                script {
+                    a = docker.image("maven:3-alpine")
+                    b = docker.image("adoptopenjdk/openjdk8-openj9")
+                    docker.withRegistry('', "${env.registryCredential}") {
+                        a.pull()
+                        b.pull()
+                    }
+                }
+            }
+        }
+
+        stage('Build App With Maven') {
+            agent {
+                 docker {
+                    image "maven:3-alpine"
+                    args '-v /data/mvn/.m2:/root/.m2:z -u root'
+                    reuseNode true
+                }
+            }
+            steps {
+                sh '''
+                    mvn package -DskipTests
+                    chown -hR 989 target
+                    chgrp -hR 983 target
+                    pwd
+                    ls -al
+                ''' 
+            }
+        }
+
+        stage('Build DockerFile And Push') {
+            steps {
+                script {
+                    docker.withRegistry("", "${env.registryCredential}") {
+                        a = docker.build("narawitrt" + "/" + "${serviceName}" + ":"+"${env.version_tag}", "-f Dockerfile .")
+                    }
+                    docker.withRegistry("", "${env.registryCredential}") {
+                        a.push()
+                    }
+                }
+            }
+        }
+
+        
+
+        stage('Apply Environment variable to deployment file') {
+            steps {
+                script {
+                    sh 'envsubst < manifests/deployment_template.yaml > manifests/deployment.yaml'
+                    sh 'envsubst < manifests/service_template.yaml > manifests/service.yaml'
+                    sh 'envsubst < manifests/ingress_template.yaml > manifests/ingress.yaml'
+                }
+            }
+        }
+
+        stage('create secret and deploy app to kube cluster') {
+            agent {
+                  docker {
+                    image "alpine/k8s:1.19.8"
+                    reuseNode true
+                }
+            }
+            steps {
+                withKubeConfig([credentialsId: 'kube_credential', serverUrl: 'https://172.16.16.100:6443']) {
+                    withCredentials([file(credentialsId: 'serviceEnv', variable: 'serviceEnv')]) {
+                        script {
+                            sh """
+                            echo ${env.imageToDeploy}
+                            ls -al manifests
+                            cat manifests/deployment.yaml
+                            cat manifests/service.yaml
+                            cat manifests/ingress.yaml
+                            kubectl create secret generic $serviceName-${env.env}-secret --from-env-file=$serviceEnv -n $namespace -o yaml --dry-run | kubectl replace -f -
+                            kubectl apply -n $namespace -f manifests/deployment.yaml
+                            kubectl apply -n $namespace -f manifests/service.yaml
+                            kubectl apply -n $namespace -f manifests/ingress.yaml
+                            """
+                            sh "kubectl get no"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                script {
+                    // sh "docker rmi narawitrt" + "/" + "demo-service" + ":"+"${env.version_tag}" 
+                    echo "cleanup"
+                }      
+            }
+        }
+
+        
+    
+    }
+    post {
+        always {
+            emailext body: 'A Test EMail', recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']], subject: 'Test'
+        }
+    }
+}
