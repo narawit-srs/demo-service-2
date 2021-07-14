@@ -5,6 +5,7 @@ public class Company {
 	private String name;
 	private String goal;
 	private String CEO;
+	private String motto;
 
 	public Company() {
 	}
@@ -37,8 +38,16 @@ public class Company {
 		return comId;
 	}
 
-	public void setComId(String comId) {
+	public void setComId(String motto) {
 		this.comId = comId;
+	}
+	
+	public String getMotto() {
+		return motto;
+	}
+
+	public void setMotto(String motto) {
+		this.motto = motto;
 	}
 
 }

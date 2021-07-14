@@ -10,8 +10,8 @@ import com.javainuse.model.Company;
 @RestController
 public class TestController {
 
-//	@Value("${USERHELLO}")
-//		String user_hello;
+	@Value("${USERHELLO}")
+		String user_hello;
 
 	@RequestMapping(value = "/company", method = RequestMethod.GET)
 	public Company firstPage() {
@@ -21,6 +21,7 @@ public class TestController {
 		com.setGoal("To the moon!!");
 		com.setComId("1");
 		com.setCEO("Timmy and Jimmy");
+		com.setMotto(user_hello);
 		
 		return com;
 	}
